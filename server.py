@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import gifts
+import anim
 import render as rnd
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
@@ -75,7 +76,8 @@ async def api_send(req: Request):
     p = body.get("params", {})
     kind = p.get("kind", "stars")
     nft = p.get("nft")
-    png = rnd.render(
+    import asyncio
+    video = await asyncio.to_thread(lambda: anim.make_video(
         kind,
         sender=(p.get("sender") or "Неизвестный пользователь")[:40],
         stars=int(p.get("stars") or 75),
@@ -89,17 +91,27 @@ async def api_send(req: Request):
         bg=p.get("bg", "dark"),
         bg_custom=p.get("bgColor"),
         button_text=(p.get("button") or "Посмотреть")[:24],
-    )
-    async with httpx.AsyncClient(timeout=30) as c:
+    ))
+    async with httpx.AsyncClient(timeout=60) as c:
         r = await c.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideo",
             data={
                 "chat_id": uid,
+                "width": 720, "height": 1280, "supports_streaming": "true",
+                "message_effect_id": "5046509860389126442",
                 "caption": "🎁 Макет сообщения о подарке (не настоящий подарок)" if p.get("mock", True) else "",
                 "reply_markup": json.dumps({"inline_keyboard": [[{"text": "Посмотреть", "callback_data": "mock_view"}]]}),
             },
-            files={"photo": ("gift.png", png, "image/png")},
+            files={"video": ("gift.mp4", video, "video/mp4")},
         )
+        if r.status_code != 200:  # эффект мог не подойти: повтор без него
+            r = await c.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideo",
+                data={"chat_id": uid, "width": 720, "height": 1280, "supports_streaming": "true",
+                      "caption": "🎁 Макет сообщения о подарке (не настоящий подарок)" if p.get("mock", True) else "",
+                      "reply_markup": json.dumps({"inline_keyboard": [[{"text": "Посмотреть", "callback_data": "mock_view"}]]})},
+                files={"video": ("gift.mp4", video, "video/mp4")},
+            )
     if r.status_code != 200:
         raise HTTPException(502, "Telegram не принял картинку")
     return {"ok": True}

@@ -1,5 +1,9 @@
 """Бот (aiogram 3): /start, /gift, /nft, ссылка t.me/nft/... -> макет в личку."""
+import asyncio
+import hashlib
+import json
 import os
+import time
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart, CommandObject
@@ -9,6 +13,7 @@ from aiogram.types import (
 )
 
 import gifts
+import anim
 import render as rnd
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
@@ -37,8 +42,38 @@ async def start(m: Message):
     )
 
 
-async def send_png(m: Message, png: bytes):
-    await m.answer_photo(BufferedInputFile(png, "gift.png"), caption=CAPTION, reply_markup=VIEW_KB)
+CONFETTI_EFFECT = "5046509860389126442"  # 🎉 эффект сообщения; если Telegram не примет, шлём без него
+_vcache: dict = {}
+_sem = asyncio.Semaphore(2)  # очередь рендера: не больше 2 одновременно
+
+
+async def build_video(kind, **kw) -> bytes:
+    key = hashlib.sha1(json.dumps([kind, kw], sort_keys=True, default=str).encode()).hexdigest()
+    hit = _vcache.get(key)
+    if hit and time.time() - hit[0] < 24 * 3600:
+        return hit[1]
+    async with _sem:
+        data = await asyncio.to_thread(lambda: anim.make_video(kind, **kw))
+    _vcache[key] = (time.time(), data)
+    return data
+
+
+async def send_video(m: Message, kind: str, **kw):
+    wait = await m.answer("Готовлю макет…")
+    try:
+        data = await build_video(kind, **kw)
+        f = BufferedInputFile(data, "gift.mp4")
+        try:
+            await m.answer_video(f, caption=CAPTION, reply_markup=VIEW_KB, width=720, height=1280,
+                                 supports_streaming=True, message_effect_id=CONFETTI_EFFECT)
+        except Exception:
+            await m.answer_video(BufferedInputFile(data, "gift.mp4"), caption=CAPTION, reply_markup=VIEW_KB,
+                                 width=720, height=1280, supports_streaming=True)
+    finally:
+        try:
+            await wait.delete()
+        except Exception:
+            pass
 
 
 @dp.message(Command("gift"))
@@ -51,7 +86,7 @@ async def gift(m: Message, command: CommandObject):
     sender = args[1] if len(args) > 1 else "Неизвестный пользователь"
     ton = f"{stars * 0.0111:.2f}".replace(".", ",")
     usd = f"{stars * 0.015:.2f}".replace(".", ",")
-    await send_png(m, rnd.render("stars", sender=sender, stars=stars, ton=ton, usd=usd))
+    await send_video(m, "stars", sender=sender, stars=stars, ton=ton, usd=usd)
 
 
 async def nft_from_text(m: Message, text: str, sender: str):
@@ -62,7 +97,7 @@ async def nft_from_text(m: Message, text: str, sender: str):
         data = await gifts.fetch_nft(*p)
     except Exception as e:  # noqa
         return await m.answer(f"Не получилось получить данные подарка: {e}")
-    await send_png(m, rnd.render("nft", sender=sender, nft=data))
+    await send_video(m, "nft", sender=sender, nft=data)
 
 
 @dp.message(Command("nft"))
@@ -81,7 +116,7 @@ async def link(m: Message):
 @dp.callback_query(F.data == "preset_stars")
 async def preset(c: CallbackQuery):
     await c.answer()
-    await send_png(c.message, rnd.render("stars"))
+    await send_video(c.message, "stars")
 
 
 @dp.callback_query(F.data == "mock_view")

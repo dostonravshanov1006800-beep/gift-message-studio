@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 RUN apt-get update \
- && apt-get install -y --no-install-recommends fonts-roboto fonts-noto-color-emoji \
+ && apt-get install -y --no-install-recommends ffmpeg fonts-roboto fonts-noto-color-emoji \
  && apt-get clean
 WORKDIR /app
 COPY requirements.txt .
