@@ -210,6 +210,33 @@ def star_gift_card(img, y, stars: int, sparkle=True):
     return y + ch
 
 
+def _own_image(nft):
+    """Картинка, загруженная пользователем (base64 data-URL или сырые байты) — без сети."""
+    import base64
+    raw = nft.get("image_b64")
+    if not raw:
+        return None
+    try:
+        if isinstance(raw, str):
+            raw = base64.b64decode(raw.split(",", 1)[-1])
+        im = Image.open(io.BytesIO(raw)).convert("RGBA")
+        bbox = im.getbbox()
+        return im.crop(bbox) if bbox else im
+    except Exception:
+        return None
+
+
+def _emoji_pattern(card, cw, ch, emoji, color=(0, 0, 0), strength=0.22):
+    """Узор из символа (эмодзи/буква) по сетке вокруг подарка — когда нет файла узора."""
+    f = font(70, True)
+    layer = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
+    ld = ImageDraw.Draw(layer)
+    for gy, row in enumerate(range(60, ch - 200, 150)):
+        for gx in range(40 + (75 if gy % 2 else 0), cw, 150):
+            ld.text((gx, row), emoji, font=f, fill=color + (int(255 * strength),), anchor="mm")
+    card.alpha_composite(layer)
+
+
 def nft_card(img, y, nft: dict, sender: str, color_hex: str, button_text="Посмотреть"):
     cw, ch = int(W * 0.66), 1040
     x0 = (W - cw) // 2
@@ -238,17 +265,20 @@ def nft_card(img, y, nft: dict, sender: str, color_hex: str, button_text="Пос
             a_ch = alpha_src.resize((size, size), Image.LANCZOS).point(lambda v, o=op: int(v * min(1, o * 1.6)))
             ic.putalpha(a_ch)
             card.alpha_composite(ic, (int(px * sx), int(py * sx * 1.0)))
+    if (nft.get("pattern_text") and not places):
+        _emoji_pattern(card, cw, ch, nft["pattern_text"][:2], hex_rgb(nft.get("pattern_color") or "#000000"))
     d = ImageDraw.Draw(card, "RGBA")
     # фото подарка (Fragment): large.jpg, затем webp; если нет, рисуем крупную первую букву вместо пустого круга
-    pic = fetch_image(nft.get("image", "")) or fetch_image(nft.get("webp", ""))
+    pic = _own_image(nft) or fetch_image(nft.get("image", "")) or fetch_image(nft.get("webp", ""))
     if pic:
         pic = pic.resize((420, 420), Image.LANCZOS)
         card.paste(pic, ((cw - 420) // 2, 120), pic if pic.mode == "RGBA" else None)
     else:
         d.text((cw / 2, 330), (nft.get("title") or "?")[0], font=font(220, True), fill=(255, 255, 255, 200), anchor="mm")
     d.text((cw / 2, 610), f"Подарок от {sender}", font=font(46, True), fill="white", anchor="mm")
-    num = f"{nft['number']:,}"
-    d.text((cw / 2, 668), f"{nft['title']} #{num}", font=font(36), fill=(255, 255, 255, 180), anchor="mm")
+    num = nft.get("number")
+    sub = f"{nft['title']} #{int(num):,}" if str(num or "").strip().isdigit() and int(num) > 0 else str(nft["title"])
+    d.text((cw / 2, 668), sub, font=font(36), fill=(255, 255, 255, 180), anchor="mm")
     rows = [("Модель", nft["model"]), ("Фон", nft["backdrop"]), ("Узор", nft["symbol"])]
     ry = 750
     lf, vf = font(34), font(34, True)

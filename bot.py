@@ -36,7 +36,8 @@ async def start(m: Message):
         "• Открой пульт и настрой всё сам\n"
         "• /gift 75 Имя — звёздный подарок\n"
         "• /nft t.me/nft/LoveCandle-123 Имя — NFT-подарок\n"
-        "• или просто пришли ссылку t.me/nft/…\n\n"
+        "• или просто пришли ссылку t.me/nft/…\n"
+        "• свой подарок: пришли картинку с подписью «Название | номер | модель | фон | узор | отправитель»\n\n"
         "Это только картинка-макет, настоящих подарков нет.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
     )
@@ -111,6 +112,29 @@ async def nft(m: Message, command: CommandObject):
 @dp.message(F.text.regexp(gifts.NFT_RE))
 async def link(m: Message):
     await nft_from_text(m, m.text, "CaseMint")
+
+
+# --- «Свой подарок» прямо в чате: фото + подпись "Название | номер | модель | фон | узор" ---
+@dp.message(F.photo | F.document)
+async def own_gift(m: Message):
+    cap = (m.caption or "").strip()
+    if not cap:
+        return await m.answer(
+            "Пришли картинку с подписью:\n<b>Название | номер | модель | фон | узор | имя отправителя</b>\n"
+            "Пример: Золотая корона | 777 | Legacy | Mustard | Rose | CaseMint\nНужно только название, остальное по желанию.",
+            parse_mode="HTML")
+    parts = [x.strip() for x in cap.split("|")] + [""] * 6
+    title, num, model, back, sym, sender = parts[:6]
+    file_id = m.photo[-1].file_id if m.photo else (m.document.file_id if (m.document and (m.document.mime_type or "").startswith("image/")) else None)
+    if not file_id:
+        return await m.answer("Нужна картинка (фото или PNG-файл).")
+    buf = await bot.download(file_id)
+    import base64
+    b64 = base64.b64encode(buf.read()).decode()
+    nft = {"title": title[:40] or "Мой подарок", "number": num if num.isdigit() else "", "model": model[:30] or "—",
+           "backdrop": back[:30] or "—", "symbol": sym[:30] or "—", "color": "#c2593a", "color_edge": "#9a3f26",
+           "pattern_color": "#000000", "pattern_text": "", "image_b64": b64}
+    await send_video(m, "nft", sender=sender[:40] or "Неизвестный пользователь", nft=nft, color=nft["color"])
 
 
 @dp.callback_query(F.data == "preset_stars")

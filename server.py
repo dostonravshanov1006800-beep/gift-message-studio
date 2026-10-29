@@ -81,6 +81,24 @@ async def api_send(req: Request):
     p = body.get("params", {})
     kind = p.get("kind", "stars")
     nft = p.get("nft")
+    if kind == "custom":
+        kind = "nft"
+        c = p.get("custom") or {}
+        img_b64 = c.get("image") or ""
+        if len(img_b64) > 4_000_000:
+            raise HTTPException(413, "Картинка слишком большая (до 3 МБ)")
+        nft = {
+            "title": (c.get("title") or "Мой подарок")[:40],
+            "number": c.get("number") or "",
+            "model": (c.get("model") or "—")[:30],
+            "backdrop": (c.get("backdrop") or "—")[:30],
+            "symbol": (c.get("symbol") or "—")[:30],
+            "color": c.get("color") or "#c2593a",
+            "color_edge": c.get("colorEdge") or None,
+            "pattern_color": c.get("patternColor") or "#000000",
+            "pattern_text": (c.get("patternText") or "")[:2],
+            "image_b64": img_b64,
+        }
     import asyncio
     video = await asyncio.to_thread(lambda: anim.make_video(
         kind,

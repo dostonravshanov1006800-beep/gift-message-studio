@@ -97,7 +97,8 @@ body.rec .stage{margin:0;border-radius:0;border:0;width:100vw;height:100vh;aspec
   <h1>Gift Message Studio</h1>
   <div class="tabs glass">
     <button id="tab-stars" class="on">⭐ Звёзды</button>
-    <button id="tab-nft">🖼 NFT-подарок</button>
+    <button id="tab-nft">🖼 NFT</button>
+    <button id="tab-custom">✨ Свой</button>
   </div>
 
   <div class="stage" id="stage">
@@ -123,6 +124,27 @@ body.rec .stage{margin:0;border-radius:0;border:0;width:100vw;height:100vh;aspec
     </div>
     <label>Цвет фона карточки</label>
     <input id="color" type="color" value="#c2593a" style="height:44px;padding:4px">
+  </div>
+
+  <div id="custombox" class="panel glass" style="display:none">
+    <label style="margin-top:0">Картинка подарка (PNG с прозрачным фоном лучше всего)</label>
+    <input id="cfile" type="file" accept="image/*">
+    <label>Название подарка</label>
+    <input id="ctitle" placeholder="Например: Золотая корона">
+    <div class="row">
+      <div><label>Номер (необязательно)</label><input id="cnum" inputmode="numeric" placeholder="10783"></div>
+      <div><label>Узор (символ)</label><input id="cpat" maxlength="2" placeholder="🔧"></div>
+    </div>
+    <div class="row">
+      <div><label>Модель</label><input id="cmodel" placeholder="Legacy"></div>
+      <div><label>Фон</label><input id="cback" placeholder="Burnt Sienna"></div>
+    </div>
+    <label>Название узора</label>
+    <input id="csym" placeholder="Spanner">
+    <div class="row">
+      <div><label>Цвет в центре</label><input id="ccol1" type="color" value="#d66f3c" style="height:44px;padding:4px"></div>
+      <div><label>Цвет по краям</label><input id="ccol2" type="color" value="#b54b2d" style="height:44px;padding:4px"></div>
+    </div>
   </div>
 
   <div id="starsbox" class="panel glass">
@@ -158,7 +180,7 @@ body.rec .stage{margin:0;border-radius:0;border:0;width:100vw;height:100vh;aspec
 const tg = window.Telegram && Telegram.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
 const $ = id => document.getElementById(id);
-let kind = 'stars', nft = null;
+let kind = 'stars', nft = null, customImg = '';
 
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 function shade(hex,k){const n=parseInt(hex.slice(1),16);let r=(n>>16)&255,g=(n>>8)&255,b=n&255;return `rgb(${Math.round(r*k)},${Math.round(g*k)},${Math.round(b*k)})`}
@@ -179,20 +201,29 @@ function draw(){
         <div class="vbtn">${btn}<i class="spark" style="left:8%;top:12%"></i><i class="spark" style="right:6%;bottom:14%;animation-delay:.5s"></i></div>
       </div>${mock}`;
   } else {
-    const col = $('color').value;
+    const isC = kind==='custom';
+    const col = isC ? $('ccol1').value : $('color').value;
+    const col2 = isC ? $('ccol2').value : shade(col,.8);
     const t = $('banner').value || `${name()} передал(а) Вам подарок!`;
     const d = $('date').value ? `<div class="pill">${esc($('date').value)}</div>` : '';
-    const title = nft ? nft.title : 'Название';
-    const num = Number($('num').value||0).toLocaleString('en-US');
-    const img = nft ? `<img class="gift-img" width="60%" src="${esc(nft.image)}" onerror="this.style.display='none'">` : '<div style="height:120px"></div>';
+    const title = isC ? ($('ctitle').value||'Название') : (nft ? nft.title : 'Название');
+    const nraw = isC ? $('cnum').value : $('num').value;
+    const num = Number(nraw||0).toLocaleString('en-US');
+    const subt = (nraw && Number(nraw)>0) ? `${esc(title)} #${num}` : esc(title);
+    const model = isC ? ($('cmodel').value||'—') : ($('model').value||'—');
+    const back = isC ? ($('cback').value||'—') : ($('backdrop').value||'—');
+    const sym = isC ? ($('csym').value||'—') : ($('symbol').value||'—');
+    const img = isC ? (customImg ? `<img class="gift-img" width="60%" src="${customImg}">` : '<div style="height:120px;display:flex;align-items:center;justify-content:center;font-size:54px;opacity:.5">🎁</div>')
+      : (nft ? `<img class="gift-img" width="60%" src="${esc(nft.image)}" onerror="this.style.display='none'">` : '<div style="height:120px"></div>');
+    const pat = (isC && $('cpat').value) ? `<div style="position:absolute;inset:0;opacity:.2;font-size:34px;line-height:64px;letter-spacing:34px;overflow:hidden;color:#000;word-break:break-all;pointer-events:none">${esc($('cpat').value).repeat(120)}</div>` : '';
     c.innerHTML = `${d}<div class="pill">${esc(t)}</div>
-      <div class="card nft" style="background:radial-gradient(circle at 50% 30%,${shade(col,1.25)},${col})">
-        <div class="ribbon">подарок</div>
+      <div class="card nft" style="background:radial-gradient(circle at 50% 30%,${col},${col2})">
+        ${pat}<div class="ribbon">подарок</div>
         <div style="padding-top:8%">${img}</div>
         <div class="t1">Подарок от ${esc(name())}</div>
-        <div class="t2">${esc(title)} #${num}</div>
-        <div class="fields"><span>Модель</span><b>${esc($('model').value||'—')}</b><span>Фон</span><b>${esc($('backdrop').value||'—')}</b><span>Узор</span><b>${esc($('symbol').value||'—')}</b></div>
-        <div class="vbtn" style="background:${shade(col,.65)}">${btn}</div>
+        <div class="t2">${subt}</div>
+        <div class="fields"><span>Модель</span><b>${esc(model)}</b><span>Фон</span><b>${esc(back)}</b><span>Узор</span><b>${esc(sym)}</b></div>
+        <div class="vbtn" style="background:${shade(col2,.75)}">${btn}</div>
       </div>${mock}`;
   }
   confetti();
@@ -210,10 +241,11 @@ function confetti(){
     requestAnimationFrame(f)})(t0);
 }
 
-function setKind(k){kind=k;$('tab-stars').className=k==='stars'?'on':'';$('tab-nft').className=k==='nft'?'on':'';
-  $('starsbox').style.display=k==='stars'?'':'none';$('nftbox').style.display=k==='nft'?'':'none';draw()}
-$('tab-stars').onclick=()=>setKind('stars'); $('tab-nft').onclick=()=>setKind('nft');
+function setKind(k){kind=k;['stars','nft','custom'].forEach(x=>{$('tab-'+x).className=k===x?'on':'';});
+  $('starsbox').style.display=k==='stars'?'':'none';$('nftbox').style.display=k==='nft'?'':'none';$('custombox').style.display=k==='custom'?'':'none';draw()}
+$('tab-stars').onclick=()=>setKind('stars'); $('tab-nft').onclick=()=>setKind('nft'); $('tab-custom').onclick=()=>setKind('custom');
 document.querySelectorAll('input,select').forEach(e=>e.addEventListener('input',()=>{
+  if(e.type==='file')return;
   if(e.id==='stars'){const s=+e.value||0;$('ton').value=(s*0.0111).toFixed(2).replace('.',',');$('usd').value=(s*0.015).toFixed(2).replace('.',',')}
   if(e.id!=='link')draw()}));
 $('replay').onclick=draw;
@@ -233,11 +265,21 @@ $('send').onclick=async()=>{
   const params={kind,sender:name(),stars:$('stars').value,ton:$('ton').value,usd:$('usd').value,
     banner:$('banner').value,date:$('date').value,button:$('button').value,bg:$('bg').value,mock:$('mock').checked,
     color:$('color').value,nft:nft?{...nft,number:+$('num').value||nft.number,model:$('model').value,backdrop:$('backdrop').value,symbol:$('symbol').value}:null};
+  if(kind==='custom'){params.custom={image:customImg,title:$('ctitle').value,number:$('cnum').value,model:$('cmodel').value,
+    backdrop:$('cback').value,symbol:$('csym').value,color:$('ccol1').value,colorEdge:$('ccol2').value,patternText:$('cpat').value,patternColor:'#000000'};
+    if(!customImg){$('msg').textContent='Сначала загрузи картинку подарка';return}}
   if(kind==='nft'&&!nft){$('msg').textContent='Сначала вставь ссылку на NFT-подарок';return}
   try{const r=await fetch('/api/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({initData:tg?tg.initData:'',params})});
     const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||'Ошибка');
     $('msg').textContent='Отправлено в чат с ботом ✓'}
   catch(e){$('msg').textContent=e.message}};
+
+$('cfile').addEventListener('change',e=>{
+  const f=e.target.files[0]; if(!f)return;
+  const rd=new FileReader(); rd.onload=()=>{const im=new Image(); im.onload=()=>{
+    const k=Math.min(1,900/Math.max(im.width,im.height)), c=document.createElement('canvas');
+    c.width=Math.round(im.width*k); c.height=Math.round(im.height*k); c.getContext('2d').drawImage(im,0,0,c.width,c.height);
+    customImg=c.toDataURL('image/png'); $('msg').textContent='Картинка загружена ✓'; draw()}; im.src=rd.result}; rd.readAsDataURL(f)});
 
 draw();
 </script>
