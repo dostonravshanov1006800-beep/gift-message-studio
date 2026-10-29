@@ -79,12 +79,24 @@ async def send_video(m: Message, kind: str, **kw):
 
 
 async def send_nft_card(m: Message, nft: dict, sender: str, color=None, button_text="Посмотреть", banner=None):
-    """Как в Telegram: служебная строка + карточка подарка с кнопкой. Без подписей «макет», без видео-рамки."""
+    """Сценарий «получение подарка» как в Telegram:
+    1) строка «X передал(а) Вам подарок!» с эффектом конфетти,
+    2) ролик: карточка выпрыгивает, фейерверки и конфетти,
+    3) карточка подарка с кнопкой «Посмотреть» (остаётся в чате)."""
     import render as _r
     loop = asyncio.get_event_loop()
-    png = await loop.run_in_executor(None, lambda: _r.card_only(nft, sender=sender, color=color, button_text=button_text))
     line = banner or f"{sender} передал(а) Вам подарок!"
-    await m.answer(f"<i>{html_escape(line)}</i>", parse_mode="HTML")
+    try:
+        await m.answer(f"<i>{html_escape(line)}</i>", parse_mode="HTML", message_effect_id=CONFETTI_EFFECT)
+    except Exception:
+        await m.answer(f"<i>{html_escape(line)}</i>", parse_mode="HTML")
+    try:
+        async with _sem:
+            video = await asyncio.to_thread(lambda: anim.make_gift_video(nft, sender, color, button_text))
+        await m.answer_video(BufferedInputFile(video, "gift.mp4"), width=720, height=1280, supports_streaming=True)
+    except Exception:
+        pass  # ролик не критичен: карточка всё равно придёт
+    png = await loop.run_in_executor(None, lambda: _r.card_only(nft, sender=sender, color=color, button_text=button_text))
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=button_text, callback_data="mock_view")]])
     await m.answer_photo(BufferedInputFile(png, "gift.png"), reply_markup=kb)
 

@@ -109,3 +109,104 @@ def make_video(kind, **kw) -> bytes:
     reader.join()
     ff.wait()
     return chunks[0]
+
+
+def _firework(rng, cx, cy, t0, cols):
+    """Один залп: искры разлетаются из точки (cx, cy) начиная с момента t0."""
+    sparks = []
+    for i in range(46):
+        a = rng.random() * math.tau
+        sp = 120 + rng.random() * 230
+        sparks.append((cx, cy, math.cos(a) * sp, math.sin(a) * sp, cols[i % len(cols)], t0))
+    return sparks
+
+
+def make_gift_video(nft: dict, sender: str, color: str = None, button_text: str = "Посмотреть") -> bytes:
+    """Ролик «получение подарка»: плашка + настоящая карточка (как в Telegram) выпрыгивает, залпы фейерверков и конфетти."""
+    card = Image.open(io.BytesIO(rnd.card_only(nft, sender=sender, color=color, button_text=button_text, width=520))).convert("RGBA")
+    bg = rnd.chat_background(False).convert("RGB").resize((OUT_W, OUT_H), Image.LANCZOS).convert("RGBA")
+    pill_png = Image.new("RGBA", (W, 200), (0, 0, 0, 0))
+    rnd.pill(pill_png, f"{sender} передал(а) Вам подарок!", 60, False)
+    pill_bb = pill_png.getchannel("A").getbbox()
+    pill = pill_png.crop(pill_bb) if pill_bb else pill_png
+    k = OUT_W * 0.9 / max(pill.width, 1)
+    k = min(k, 0.67)
+    pill = pill.resize((max(1, int(pill.width * k)), max(1, int(pill.height * k))), Image.LANCZOS)
+
+    cx = OUT_W // 2
+    total_h = pill.height + 24 + card.height
+    top = (OUT_H - total_h) // 2
+    pill_y = top
+    card_cy = top + pill.height + 24 + card.height // 2
+
+    rng = random.Random(7)
+    cols = [(255, 210, 63), (238, 66, 102), (59, 206, 172), (90, 169, 255), (255, 255, 255), (255, 140, 66)]
+    bursts = []
+    for t0, bx, by in ((0.5, 150, 330), (1.0, 570, 280), (1.5, 360, 220), (2.2, 190, 900), (2.7, 540, 940)):
+        bursts += _firework(rng, bx, by, t0, cols)
+    conf = []
+    for i in range(190):
+        a = rng.random() * math.tau
+        s = 260 + rng.random() * 520
+        conf.append([cx, card_cy, math.cos(a) * s, math.sin(a) * s - 380, 8 + rng.random() * 8, 5 + rng.random() * 7,
+                     rng.random() * 6, (rng.random() - .5) * 14, cols[i % len(cols)]])
+
+    seconds = 5
+    n = FPS * seconds
+    ff = subprocess.Popen([
+        "ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{OUT_W}x{OUT_H}",
+        "-framerate", str(FPS), "-i", "-", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+        "-crf", "23", "-movflags", "frag_keyframe+empty_moov", "-f", "mp4", "pipe:1",
+    ], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    import threading
+    chunks = []
+    reader = threading.Thread(target=lambda: chunks.append(ff.stdout.read()), daemon=True)
+    reader.start()
+
+    for f in range(n):
+        t = f / FPS
+        frame = bg.copy()
+        # плашка появляется сразу
+        pa = min(1, t / 0.3)
+        p = pill.copy()
+        if pa < 1:
+            p.putalpha(p.getchannel("A").point(lambda v: int(v * pa)))
+        frame.alpha_composite(p, (cx - p.width // 2, pill_y))
+        # карточка: пружинный выход после 0.25 c
+        ct = max(0.0, t - 0.25)
+        kk = _ease_pop(min(1, ct / 0.7))
+        sc = 0.25 + 0.75 * kk
+        if t >= 0.25:
+            c = card.resize((max(2, int(card.width * sc)), max(2, int(card.height * sc))), Image.BILINEAR)
+            al = min(1, ct / 0.25)
+            if al < 1:
+                c.putalpha(c.getchannel("A").point(lambda v: int(v * al)))
+            frame.alpha_composite(c, (cx - c.width // 2, card_cy - c.height // 2))
+        d = ImageDraw.Draw(frame, "RGBA")
+        # фейерверки
+        for (x0, y0, vx, vy, col, t0) in bursts:
+            bt = t - t0
+            if 0 <= bt < 1.3:
+                fade = 1 - bt / 1.3
+                x = x0 + vx * bt * 0.8
+                y = y0 + vy * bt * 0.8 + 90 * bt * bt
+                r = 3.5 * fade + 1
+                d.ellipse([x - r, y - r, x + r, y + r], fill=col + (int(255 * fade),))
+                x2, y2 = x - vx * 0.03, y - vy * 0.03
+                d.line([(x, y), (x2, y2)], fill=col + (int(160 * fade),), width=2)
+        # конфетти от карточки
+        cft = t - 0.4
+        if 0 <= cft < 3.2:
+            fade = 1 - cft / 3.2
+            for q in conf:
+                x = q[0] + q[2] * cft
+                y = q[1] + q[3] * cft + 420 * cft * cft
+                ang = q[6] + q[7] * cft
+                dx, dy = math.cos(ang) * q[4] / 2, math.sin(ang) * q[5] / 2
+                d.polygon([(x - dx - dy, y - dy + dx), (x + dx - dy, y + dy + dx), (x + dx + dy, y + dy - dx), (x - dx + dy, y - dy - dx)],
+                          fill=q[8] + (int(255 * fade),))
+        ff.stdin.write(frame.convert("RGB").tobytes())
+    ff.stdin.close()
+    reader.join()
+    ff.wait()
+    return chunks[0]
