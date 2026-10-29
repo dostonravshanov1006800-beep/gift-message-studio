@@ -54,7 +54,7 @@ def rate_limit(uid: int, limit=3, per=60):
 @app.get("/api/nft")
 async def api_nft(link: str):
     p = gifts.parse_link(link)
-    if not p or p == "unknown":
+    if not p:
         raise HTTPException(404, "Не нашёл такой подарок, проверь ссылку")
     try:
         return await gifts.fetch_nft(*p)

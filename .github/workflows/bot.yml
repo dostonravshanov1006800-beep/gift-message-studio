@@ -25,6 +25,12 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - name: Кэш подарков (общий для всех воркеров)
+        uses: actions/cache@v4
+        with:
+          path: cache
+          key: nft-cache-${{ github.run_id }}
+          restore-keys: nft-cache-
       - name: ffmpeg
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-roboto fonts-noto-color-emoji
       - run: pip install -r requirements.txt

@@ -120,7 +120,7 @@ async def gift(m: Message, command: CommandObject):
 
 async def nft_from_text(m: Message, text: str, sender: str):
     p = gifts.parse_link(text)
-    if not p or p == "unknown":
+    if not p:
         return await m.answer("Не нашёл такой подарок, проверь ссылку.")
     try:
         data = await gifts.fetch_nft(*p)

@@ -17,7 +17,7 @@ SPECIAL_NAMES = {
     "khabibspapakha": "Khabib’s Papakha",
 }
 
-NFT_RE = re.compile(r"(?:https?://)?(?:t\.me|telegram\.me)/nft/([A-Za-z0-9_]+)-(\d+)", re.I)
+NFT_RE = re.compile(r"(?:https?://)?(?:t\.me|telegram\.me)/nft/([A-Za-z0-9_]+?)-(\d*)(?![A-Za-z0-9_])", re.I)
 
 
 def pretty_name(slug: str) -> str:
@@ -29,24 +29,39 @@ def pretty_name(slug: str) -> str:
 
 
 def parse_link(text: str):
+    """Любая ссылка t.me/nft/Имя-число. Если номер не указан, берём случайный (для демо). Список коллекций не нужен."""
     m = NFT_RE.search(text or "")
     if not m:
         return None
-    slug, num = m.group(1), int(m.group(2))
-    if slug.lower() not in COLLECTION_SET:
-        return "unknown"
-    return COLLECTION_SET[slug.lower()], num
+    slug, num = m.group(1), m.group(2)
+    slug = COLLECTION_SET.get(slug.lower(), slug)
+    if not num:
+        import random
+        num = random.randint(1, 3000)
+    return slug, int(num)
 
 
 _cache: dict = {}
-TTL = 24 * 3600
+_tg_lock = asyncio.Lock()
+_last_tg = [0.0]
+
+
+async def _tg_wait():
+    """Не чаще одного обращения к t.me раз в 1,2 с, иначе Telegram отдаёт пустую заглушку."""
+    gap = 1.2 - (time.time() - _last_tg[0])
+    if gap > 0:
+        await asyncio.sleep(gap)
+    _last_tg[0] = time.time()
+
+TTL = 24 * 3600          # кэш в памяти
+DISK_TTL = 365 * 24 * 3600  # на диске подарок неизменен: храним год
 CACHE_DIR = os.path.join("cache", "nft")
 
 
 def _disk_get(key):
     try:
         p = os.path.join(CACHE_DIR, key + ".json")
-        if os.path.exists(p) and time.time() - os.path.getmtime(p) < TTL:
+        if os.path.exists(p) and time.time() - os.path.getmtime(p) < DISK_TTL:
             return json.load(open(p, encoding="utf-8"))
     except Exception:
         pass
@@ -62,6 +77,14 @@ def _disk_put(key, data):
 
 
 async def fetch_nft(slug: str, num: int) -> dict:
+    key0 = f"{slug}-{num}".lower()
+    if key0 in _cache or _disk_get(key0):
+        return await _fetch_nft(slug, num)
+    async with _tg_lock:
+        return await _fetch_nft(slug, num)
+
+
+async def _fetch_nft(slug: str, num: int) -> dict:
     key = f"{slug}-{num}".lower()
     hit = _cache.get(key)
     if hit and time.time() - hit[0] < TTL:
@@ -71,27 +94,41 @@ async def fetch_nft(slug: str, num: int) -> dict:
         _cache[key] = (time.time(), disk)
         return disk
 
-    url = f"https://t.me/nft/{slug}-{num}"
-    html = ""
-    last_err = None
+    hosts = ["t.me", "telegram.me"]
     uas = ["curl/8.0", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36",
-           "python-httpx/0.27", "Mozilla/5.0"]
-    # Telegram иногда отдаёт укороченную страницу без SVG (цвета/узор): повторяем, пока не придёт полная
-    for attempt in range(5):
+           "python-httpx/0.27", "Mozilla/5.0", "TelegramBot (like TwitterBot)", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)"]
+    html = ""
+    missing = 0
+    last_err = None
+    # Telegram иногда отдаёт укороченную страницу без SVG (цвета/узор): повторяем, меняя адрес и User-Agent
+    for attempt in range(10):
         if attempt:
-            await asyncio.sleep(1.5 * attempt)  # мягкие паузы: Telegram режет частые запросы
+            await asyncio.sleep(min(0.6 * attempt, 3))
+        url = f"https://{hosts[attempt % 2]}/nft/{slug}-{num}"
         try:
-            async with httpx.AsyncClient(timeout=8, follow_redirects=True) as c:
+            await _tg_wait()
+            async with httpx.AsyncClient(timeout=8, follow_redirects=False) as c:
                 r = await c.get(url, headers={"User-Agent": uas[attempt % len(uas)], "Accept-Language": "en"})
+            if r.status_code in (301, 302, 303, 307, 308):
+                loc = r.headers.get("location", "")
+                if "/nft/" not in loc:  # ушёл на главную: такого подарка нет
+                    missing += 1
+                    if missing >= 2:
+                        raise LookupError(f"Подарка {slug}-{num} не существует. Попробуй другой номер.")
+                    continue
+                async with httpx.AsyncClient(timeout=8, follow_redirects=True) as c:
+                    r = await c.get(url, headers={"User-Agent": uas[attempt % len(uas)], "Accept-Language": "en"})
             if r.status_code == 200:
                 if not html or ("stop-color" in r.text and "stop-color" not in html):
                     html = r.text
                 if "stop-color" in html:
                     break
+        except LookupError:
+            raise
         except Exception as e:  # noqa
             last_err = e
     if not html or "stop-color" not in html:
-        raise RuntimeError("Telegram сейчас не отдаёт данные этого подарка (лимит запросов или такого номера нет). Подожди минуту и повтори.")
+        raise RuntimeError("Telegram сейчас не отдаёт данные этого подарка (лимит запросов). Подожди минуту и повтори.")
 
     def row(label: str):
         m = re.search(
@@ -128,10 +165,12 @@ async def fetch_nft(slug: str, num: int) -> dict:
             r'<g opacity="([\d.]+)" transform="translate\(([-\d.]+), ([-\d.]+)\)">\s*<use xlink:href="#giftPattern" transform="scale\(([\d.]+)\)"',
             html)
     ]
+    tt = re.search(r'<meta property="og:title" content="([^"]*?)\s*#\d+"', html)
+    page_title = re.sub(r"\s+", " ", tt.group(1)).strip() if tt else ""
     data = {
         "slug": slug,
         "number": num,
-        "title": pretty_name(slug),
+        "title": page_title or pretty_name(slug),
         "model": model or "—",
         "backdrop": backdrop or "—",
         "symbol": symbol or "—",
