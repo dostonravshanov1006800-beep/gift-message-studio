@@ -13,11 +13,12 @@ concurrency:
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,5 +32,8 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           WEBAPP_URL: https://dostonravshanov1006800-beep.github.io/gift-message-studio/
-          WORKER_SECONDS: "330"
+          WORKER_SECONDS: "400"
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GH_REF: ${{ github.ref_name }}
         run: python worker.py
