@@ -130,12 +130,30 @@ def pill(img, text, y, light=False):
 
 
 def fetch_image(url: str):
-    try:
-        r = httpx.get(url, timeout=8, follow_redirects=True)
-        if r.status_code == 200:
-            return Image.open(io.BytesIO(r.content)).convert("RGBA")
-    except Exception:
-        pass
+    """Скачивает картинку (2 попытки) и кэширует на диск на 24 часа: работает и при кратком сбое сети."""
+    import hashlib, os, time
+    if not url:
+        return None
+    os.makedirs("cache/img", exist_ok=True)
+    path = os.path.join("cache/img", hashlib.sha1(url.encode()).hexdigest())
+    if os.path.exists(path) and time.time() - os.path.getmtime(path) < 86400:
+        try:
+            return Image.open(path).convert("RGBA")
+        except Exception:
+            pass
+    for _ in range(2):
+        try:
+            r = httpx.get(url, timeout=8, follow_redirects=True)
+            if r.status_code == 200:
+                open(path, "wb").write(r.content)
+                return Image.open(io.BytesIO(r.content)).convert("RGBA")
+        except Exception:
+            continue
+    if os.path.exists(path):  # устаревший кэш лучше, чем пустота
+        try:
+            return Image.open(path).convert("RGBA")
+        except Exception:
+            pass
     return None
 
 
@@ -195,38 +213,42 @@ def star_gift_card(img, y, stars: int, sparkle=True):
 def nft_card(img, y, nft: dict, sender: str, color_hex: str, button_text="Посмотреть"):
     cw, ch = int(W * 0.66), 1040
     x0 = (W - cw) // 2
-    base = hex_rgb(color_hex)
-    card = Image.new("RGBA", (cw, ch), base + (255,))
-    # мягкая радиальная заливка
-    grad = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
-    gd = ImageDraw.Draw(grad)
-    for i in range(40):
-        t = i / 40
-        c = tuple(int(base[k] + (lighter(base, 1.3)[k] - base[k]) * (1 - t)) for k in range(3)) + (int(200 * (1 - t) / 2),)
-        r = int(cw * 0.8 * (1 - t) + 20)
-        gd.ellipse([cw / 2 - r, 330 - r, cw / 2 + r, 330 + r], fill=c)
-    card = Image.alpha_composite(card, grad.filter(ImageFilter.GaussianBlur(30)))
+    c_center = hex_rgb(color_hex)
+    c_edge = hex_rgb(nft.get("color_edge") or "#000000") if nft.get("color_edge") else darker(c_center, 0.8)
+    base = c_center
+    # радиальный градиент центр -> край (как в SVG страницы)
+    card = Image.new("RGBA", (cw, ch), c_edge + (255,))
+    steps = 60
+    gd = ImageDraw.Draw(card)
+    for i in range(steps):
+        t = i / (steps - 1)
+        c = tuple(int(c_center[k] + (c_edge[k] - c_center[k]) * t) for k in range(3))
+        rx, ry = cw * 0.9 * (1 - t) + 4, ch * 0.62 * (1 - t) + 4
+        gd.ellipse([cw / 2 - rx, ch * 0.34 - ry, cw / 2 + rx, ch * 0.34 + ry], fill=c + (255,))
+    # настоящий узор: иконка со страницы t.me на тех же позициях, цвет из flood-color
+    pat_img = fetch_image(nft.get("pattern_url") or "")
+    places = nft.get("pattern_places") or []
+    if pat_img is not None and places:
+        alpha_src = pat_img.getchannel("A")
+        tint = hex_rgb(nft.get("pattern_color") or "#000000")
+        sx = cw / 420.0
+        for op, px, py, sc in places:
+            size = max(4, int(100 * sc * sx))
+            ic = Image.new("RGBA", (size, size), tint + (0,))
+            a_ch = alpha_src.resize((size, size), Image.LANCZOS).point(lambda v, o=op: int(v * min(1, o * 1.6)))
+            ic.putalpha(a_ch)
+            card.alpha_composite(ic, (int(px * sx), int(py * sx * 1.0)))
     d = ImageDraw.Draw(card, "RGBA")
-    # узор шахматкой
-    pat = lighter(base, 1.35) + (70,)
-    for gy in range(40, ch, 100):
-        for gx in range(30, cw, 100):
-            x = gx + (50 if (gy // 100) % 2 else 0)
-            d.ellipse([x, gy, x + 26, gy + 26], fill=pat)
-    # изображение модели
-    pic = fetch_image(nft.get("image", ""))
-    if pic is None:
-        pic = fetch_image(nft.get("webp", ""))
+    # фото подарка (Fragment): large.jpg, затем webp; если нет, рисуем крупную первую букву вместо пустого круга
+    pic = fetch_image(nft.get("image", "")) or fetch_image(nft.get("webp", ""))
     if pic:
-        pic = pic.resize((400, 400))
-        card.paste(pic, ((cw - 400) // 2, 130), pic)
+        pic = pic.resize((420, 420), Image.LANCZOS)
+        card.paste(pic, ((cw - 420) // 2, 120), pic if pic.mode == "RGBA" else None)
     else:
-        d.ellipse([cw / 2 - 150, 180, cw / 2 + 150, 480], fill=(255, 255, 255, 60))
-    # заголовок
+        d.text((cw / 2, 330), (nft.get("title") or "?")[0], font=font(220, True), fill=(255, 255, 255, 200), anchor="mm")
     d.text((cw / 2, 610), f"Подарок от {sender}", font=font(46, True), fill="white", anchor="mm")
     num = f"{nft['number']:,}"
     d.text((cw / 2, 668), f"{nft['title']} #{num}", font=font(36), fill=(255, 255, 255, 180), anchor="mm")
-    # три строки
     rows = [("Модель", nft["model"]), ("Фон", nft["backdrop"]), ("Узор", nft["symbol"])]
     ry = 750
     lf, vf = font(34), font(34, True)
@@ -234,26 +256,22 @@ def nft_card(img, y, nft: dict, sender: str, color_hex: str, button_text="Пос
         d.text((cw / 2 - 20, ry), lab, font=lf, fill=(255, 255, 255, 170), anchor="rm")
         d.text((cw / 2 + 20, ry), val, font=vf, fill="white", anchor="lm")
         ry += 56
-    # кнопка
     bw, bh = 340, 92
     bx, by = (cw - bw) // 2, ch - bh - 36
     d.rounded_rectangle([bx, by, bx + bw, by + bh], bh // 2, fill=darker(base, 0.65) + (230,))
     d.text((cw / 2, by + bh / 2), button_text, font=font(40, True), fill="white", anchor="mm")
-    # лента «подарок»
     ribbon = Image.new("RGBA", (260, 60), (0, 0, 0, 0))
     rd = ImageDraw.Draw(ribbon)
     rd.rectangle([0, 0, 260, 60], fill=darker(base, 0.7) + (230,))
     rd.text((130, 30), "подарок", font=font(30, True), fill="white", anchor="mm")
     ribbon = ribbon.rotate(-45, expand=True, resample=Image.BICUBIC)
     card.paste(ribbon, (cw - ribbon.width + 40, -30), ribbon)
-    # стеклянный блик и кромка
     hl = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
     hd = ImageDraw.Draw(hl)
     for i in range(int(ch * 0.5)):
         hd.line([(0, i), (cw, i)], fill=(255, 255, 255, int(55 * (1 - i / (ch * 0.5)))))
     card = Image.alpha_composite(card, hl)
     ImageDraw.Draw(card).rounded_rectangle([1, 1, cw - 2, ch - 2], 48, outline=(255, 255, 255, 120), width=3)
-    # скругление
     mask = Image.new("L", (cw, ch), 0)
     ImageDraw.Draw(mask).rounded_rectangle([0, 0, cw, ch], 48, fill=255)
     card.putalpha(mask)

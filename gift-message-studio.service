@@ -1,0 +1,14 @@
+[Unit]
+Description=Gift Message Studio (Telegram bot + Mini App)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/opt/gift-message-studio
+EnvironmentFile=/opt/gift-message-studio/.env
+ExecStart=/usr/bin/python3 /opt/gift-message-studio/main.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

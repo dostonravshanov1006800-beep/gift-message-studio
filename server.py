@@ -62,6 +62,11 @@ async def api_nft(link: str):
         raise HTTPException(502, str(e))
 
 
+@app.get("/health")
+async def health():
+    return {"ok": True, "ts": int(time.time())}
+
+
 @app.get("/api/backdrops")
 async def api_backdrops():
     return gifts.BACKDROPS

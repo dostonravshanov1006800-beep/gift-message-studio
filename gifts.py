@@ -1,4 +1,7 @@
 """Данные: коллекции NFT, пресеты фонов, парсинг ссылки t.me/nft/..., получение данных подарка."""
+import asyncio
+import json
+import os
 import re
 import time
 import httpx
@@ -37,6 +40,25 @@ def parse_link(text: str):
 
 _cache: dict = {}
 TTL = 24 * 3600
+CACHE_DIR = os.path.join("cache", "nft")
+
+
+def _disk_get(key):
+    try:
+        p = os.path.join(CACHE_DIR, key + ".json")
+        if os.path.exists(p) and time.time() - os.path.getmtime(p) < TTL:
+            return json.load(open(p, encoding="utf-8"))
+    except Exception:
+        pass
+    return None
+
+
+def _disk_put(key, data):
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        json.dump(data, open(os.path.join(CACHE_DIR, key + ".json"), "w", encoding="utf-8"), ensure_ascii=False)
+    except Exception:
+        pass
 
 
 async def fetch_nft(slug: str, num: int) -> dict:
@@ -44,21 +66,32 @@ async def fetch_nft(slug: str, num: int) -> dict:
     hit = _cache.get(key)
     if hit and time.time() - hit[0] < TTL:
         return hit[1]
+    disk = _disk_get(key)
+    if disk:
+        _cache[key] = (time.time(), disk)
+        return disk
 
     url = f"https://t.me/nft/{slug}-{num}"
     html = ""
     last_err = None
-    for _ in range(2):
+    uas = ["curl/8.0", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36",
+           "python-httpx/0.27", "Mozilla/5.0"]
+    # Telegram иногда отдаёт укороченную страницу без SVG (цвета/узор): повторяем, пока не придёт полная
+    for attempt in range(5):
+        if attempt:
+            await asyncio.sleep(1.5 * attempt)  # мягкие паузы: Telegram режет частые запросы
         try:
             async with httpx.AsyncClient(timeout=8, follow_redirects=True) as c:
-                r = await c.get(url, headers={"User-Agent": "Mozilla/5.0"})
-                if r.status_code == 200:
+                r = await c.get(url, headers={"User-Agent": uas[attempt % len(uas)], "Accept-Language": "en"})
+            if r.status_code == 200:
+                if not html or ("stop-color" in r.text and "stop-color" not in html):
                     html = r.text
+                if "stop-color" in html:
                     break
         except Exception as e:  # noqa
             last_err = e
-    if not html:
-        raise RuntimeError(f"Не удалось получить данные подарка ({last_err or 'нет ответа'})")
+    if not html or "stop-color" not in html:
+        raise RuntimeError("Telegram сейчас не отдаёт данные этого подарка (лимит запросов или такого номера нет). Подожди минуту и повтори.")
 
     def row(label: str):
         m = re.search(
@@ -86,6 +119,15 @@ async def fetch_nft(slug: str, num: int) -> dict:
                     else:
                         symbol = val
 
+    stops = re.findall(r'stop-color="(#[0-9a-fA-F]{6})"', html)
+    flood = re.findall(r'flood-color="(#[0-9a-fA-F]{6})"', html)
+    pat_m = re.search(r'<image id="giftPattern"[^>]*xlink:href="([^"]+)"', html)
+    places = [
+        (float(o), float(x), float(y), float(s))
+        for o, x, y, s in re.findall(
+            r'<g opacity="([\d.]+)" transform="translate\(([-\d.]+), ([-\d.]+)\)">\s*<use xlink:href="#giftPattern" transform="scale\(([\d.]+)\)"',
+            html)
+    ]
     data = {
         "slug": slug,
         "number": num,
@@ -96,9 +138,14 @@ async def fetch_nft(slug: str, num: int) -> dict:
         "image": f"https://nft.fragment.com/gift/{slug.lower()}-{num}.large.jpg",
         "lottie": f"https://nft.fragment.com/gift/{slug.lower()}-{num}.lottie.json",
         "webp": f"https://nft.fragment.com/gift/{slug.lower()}-{num}.webp",
-        "color": BACKDROPS.get(backdrop.lower()) if backdrop else None,
+        "color": stops[0] if stops else (BACKDROPS.get(backdrop.lower()) if backdrop else None),
+        "color_edge": stops[1] if len(stops) > 1 else None,
+        "pattern_color": flood[0] if flood else "#000000",
+        "pattern_url": pat_m.group(1) if pat_m else None,
+        "pattern_places": places,
     }
     _cache[key] = (time.time(), data)
+    _disk_put(key, data)
     return data
 
 
