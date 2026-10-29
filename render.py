@@ -47,6 +47,14 @@ def lighter(rgb, k=1.25):
 def chat_background(light=False, custom=None):
     base = hex_rgb(custom) if custom else ((222, 232, 214) if light else (20, 30, 40))
     img = Image.new("RGB", (W, H), base)
+    # мягкие цветные «блики» под стеклом
+    glow = Image.new("RGB", (W, H), base)
+    gd = ImageDraw.Draw(glow)
+    for (gx, gy, rad, col) in ((200, 300, 520, (59, 130, 246)), (900, 700, 480, (168, 85, 247)),
+                               (300, 1500, 560, (236, 72, 153)), (880, 1700, 420, (6, 182, 212))):
+        gd.ellipse([gx - rad, gy - rad, gx + rad, gy + rad], fill=col)
+    glow = glow.filter(ImageFilter.GaussianBlur(180))
+    img = Image.blend(img, glow, 0.45 if not light else 0.25)
     d = ImageDraw.Draw(img, "RGBA")
     rnd = random.Random(7)
     icon = (255, 255, 255, 14) if not light else (0, 0, 0, 14)
@@ -72,6 +80,28 @@ def chat_background(light=False, custom=None):
     return img
 
 
+def glass_panel(img, box, radius, light=False, tint=(255, 255, 255)):
+    """Liquid glass: размытие фона под панелью + светлая подложка + блик и светлая кромка."""
+    x0, y0, x1, y1 = [int(v) for v in box]
+    w, h = x1 - x0, y1 - y0
+    region = img.crop((x0, y0, x1, y1)).filter(ImageFilter.GaussianBlur(22))
+    mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, w - 1, h - 1], radius, fill=255)
+    overlay = Image.new("RGBA", (w, h), tint + (38 if not light else 90,))
+    # диагональный блик
+    hl = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    hd = ImageDraw.Draw(hl)
+    for i in range(h):
+        a = int(70 * max(0, 1 - i / (h * 0.55)))
+        hd.line([(0, i), (w, i)], fill=(255, 255, 255, a))
+    region = Image.alpha_composite(region.convert("RGBA"), overlay)
+    region = Image.alpha_composite(region, hl)
+    ed = ImageDraw.Draw(region)
+    ed.rounded_rectangle([0, 0, w - 1, h - 1], radius, outline=(255, 255, 255, 110), width=2)
+    ed.rounded_rectangle([3, 3, w - 4, h - 4], max(1, radius - 3), outline=(255, 255, 255, 40), width=1)
+    img.paste(region.convert("RGB"), (x0, y0), mask)
+
+
 def pill(img, text, y, light=False):
     d = ImageDraw.Draw(img, "RGBA")
     f = font(34, False)
@@ -91,8 +121,9 @@ def pill(img, text, y, light=False):
     tw = max(d.textlength(l, font=f) for l in lines)
     pw, ph = tw + 70, lh * len(lines) + 26
     x0 = (W - pw) / 2
-    d.rounded_rectangle([x0, y, x0 + pw, y + ph], ph / 2 if len(lines) == 1 else 36,
-                        fill=(0, 0, 0, 120) if not light else (60, 80, 60, 150))
+    rad = int(ph / 2 if len(lines) == 1 else 36)
+    glass_panel(img, [x0, y, x0 + pw, y + ph], rad, light)
+    d = ImageDraw.Draw(img, "RGBA")
     for i, l in enumerate(lines):
         d.text((W / 2, y + 13 + lh * i + lh / 2), l, font=f, fill="white", anchor="mm")
     return y + ph
@@ -127,7 +158,9 @@ def star_gift_card(img, y, stars: int, sparkle=True):
     x0 = (W - cw) // 2
     card = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
     d = ImageDraw.Draw(card, "RGBA")
-    d.rounded_rectangle([0, 0, cw, ch], 48, fill=(10, 20, 28, 150))
+    glass_panel(img, [x0, y, x0 + cw, y + ch], 48)
+    card = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
+    d = ImageDraw.Draw(card, "RGBA")
     # коробка со звездой (векторный рисунок)
     cx, cy = cw // 2, 300
     d.polygon([(cx - 150, cy), (cx + 150, cy), (cx + 120, cy + 190), (cx - 120, cy + 190)], fill=(70, 160, 60))
@@ -213,6 +246,13 @@ def nft_card(img, y, nft: dict, sender: str, color_hex: str, button_text="Пос
     rd.text((130, 30), "подарок", font=font(30, True), fill="white", anchor="mm")
     ribbon = ribbon.rotate(-45, expand=True, resample=Image.BICUBIC)
     card.paste(ribbon, (cw - ribbon.width + 40, -30), ribbon)
+    # стеклянный блик и кромка
+    hl = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
+    hd = ImageDraw.Draw(hl)
+    for i in range(int(ch * 0.5)):
+        hd.line([(0, i), (cw, i)], fill=(255, 255, 255, int(55 * (1 - i / (ch * 0.5)))))
+    card = Image.alpha_composite(card, hl)
+    ImageDraw.Draw(card).rounded_rectangle([1, 1, cw - 2, ch - 2], 48, outline=(255, 255, 255, 120), width=3)
     # скругление
     mask = Image.new("L", (cw, ch), 0)
     ImageDraw.Draw(mask).rounded_rectangle([0, 0, cw, ch], 48, fill=255)
@@ -221,32 +261,36 @@ def nft_card(img, y, nft: dict, sender: str, color_hex: str, button_text="Пос
     return y + ch
 
 
+def _compose(kind, y0, img, sender, stars, ton, usd, nft, color, banner, date_label, button_text, light):
+    """Рисует блок (дата + плашка + карточка) начиная с y0, возвращает нижнюю границу."""
+    if kind == "stars":
+        text = banner or f"{sender} отправил(а) Вам подарок стоимостью {ton} TON (~ {usd} $)"
+        y = pill(img, text, y0, light) + 36
+        return star_gift_card(img, y, stars)
+    text = banner or f"{sender} передал(а) Вам подарок!"
+    y = y0
+    if date_label:
+        y = pill(img, date_label, y, light) + 30
+    y = pill(img, text, y, light) + 36
+    color = color or (nft or {}).get("color") or "#c2593a"
+    return nft_card(img, y, nft, sender, color, button_text)
+
+
 def render(kind: str, *, sender="Неизвестный пользователь", stars=75, ton="0,83", usd="1,12",
            nft=None, color=None, banner=None, date_label=None, mock_mark=True,
            bg="dark", bg_custom=None, button_text="Посмотреть") -> bytes:
     light = bg == "light"
+    args = (sender, stars, ton, usd, nft, color, banner, date_label, button_text, light)
+    # 1) замеряем реальную высоту блока на пробном холсте
+    probe = Image.new("RGB", (W, H * 2), (0, 0, 0))
+    block_h = _compose(kind, 0, probe, *args)
+    # 2) ставим блок так, чтобы его центр был ровно в центре кадра
+    y0 = (H - block_h) // 2
     img = chat_background(light, bg_custom if bg == "custom" else None)
-    d = ImageDraw.Draw(img, "RGBA")
-
-    if kind == "stars":
-        text = banner or f"{sender} отправил(а) Вам подарок стоимостью {ton} TON (~ {usd} $)"
-        total = 150 + 860
-        y = (H - total) // 2
-        y = pill(img, text, y, light) + 36
-        star_gift_card(img, y, stars)
-    else:
-        text = banner or f"{sender} передал(а) Вам подарок!"
-        total = 150 + 1040 + (110 if date_label else 0)
-        y = (H - total) // 2
-        if date_label:
-            y = pill(img, date_label, y, light) + 30
-        y = pill(img, text, y, light) + 36
-        color = color or (nft or {}).get("color") or "#c2593a"
-        nft_card(img, y, nft, sender, color, button_text)
-
+    _compose(kind, y0, img, *args)
     if mock_mark:
-        d.text((W - 40, H - 36), "МАКЕТ", font=font(28, True), fill=(255, 255, 255, 140), anchor="rb")
-
+        ImageDraw.Draw(img, "RGBA").text((W - 40, H - 36), "МАКЕТ", font=font(28, True),
+                                         fill=(255, 255, 255, 140), anchor="rb")
     buf = io.BytesIO()
     img.save(buf, "PNG", optimize=True)
     return buf.getvalue()

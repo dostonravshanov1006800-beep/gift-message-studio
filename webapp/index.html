@@ -7,61 +7,95 @@
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
+:root{--glass:rgba(255,255,255,.10);--glass2:rgba(255,255,255,.16);--edge:rgba(255,255,255,.38);--txt:#fff}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;font-family:Roboto,system-ui,sans-serif;background:var(--tg-theme-bg-color,#17212b);color:var(--tg-theme-text-color,#fff)}
-.wrap{padding:12px 14px calc(20px + env(safe-area-inset-bottom));max-width:560px;margin:0 auto}
-h1{font-size:18px;margin:6px 0 10px}
-.tabs{display:flex;gap:6px;margin-bottom:10px}
-.tabs button{flex:1;padding:9px 4px;border:0;border-radius:10px;background:var(--tg-theme-secondary-bg-color,#232e3c);color:inherit;font:500 13px Roboto}
-.tabs button.on{background:var(--tg-theme-button-color,#2ea6ff);color:var(--tg-theme-button-text-color,#fff)}
-label{display:block;font-size:12px;opacity:.7;margin:10px 0 4px}
-input,select{width:100%;padding:11px;border-radius:10px;border:1px solid #ffffff22;background:var(--tg-theme-secondary-bg-color,#232e3c);color:inherit;font:400 15px Roboto}
-.row{display:flex;gap:8px}.row>*{flex:1}
-.sw{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:14px}
+html,body{margin:0;min-height:100%;font-family:Roboto,system-ui,sans-serif;color:var(--txt);background:#0a1020}
+body::before{content:"";position:fixed;inset:-20%;z-index:-1;
+ background:radial-gradient(40% 35% at 20% 15%,#3b82f6 0,transparent 60%),
+ radial-gradient(40% 35% at 85% 25%,#a855f7 0,transparent 60%),
+ radial-gradient(45% 40% at 70% 90%,#06b6d4 0,transparent 60%),
+ radial-gradient(35% 35% at 10% 85%,#ec4899 0,transparent 60%),#0a1020;
+ filter:blur(30px) saturate(130%);animation:drift 18s ease-in-out infinite alternate}
+@keyframes drift{from{transform:translate3d(-2%,-1%,0) scale(1)}to{transform:translate3d(2%,2%,0) scale(1.08)}}
+.wrap{padding:14px 14px calc(24px + env(safe-area-inset-bottom));max-width:560px;margin:0 auto}
+.glass{background:linear-gradient(135deg,rgba(255,255,255,.20),rgba(255,255,255,.06));
+ backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%);
+ border:1px solid var(--edge);border-radius:22px;
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.55),inset 0 -1px 0 rgba(255,255,255,.10),0 12px 40px rgba(0,0,0,.35)}
+h1{font-size:20px;margin:6px 4px 12px;font-weight:700;letter-spacing:.2px;text-shadow:0 2px 12px rgba(0,0,0,.35)}
+.panel{padding:14px;margin-top:12px}
+.tabs{display:flex;gap:6px;padding:5px;margin-bottom:12px}
+.tabs button{flex:1;padding:10px 4px;border:0;border-radius:16px;background:transparent;color:#fff;font:500 14px Roboto;transition:.25s}
+.tabs button.on{background:linear-gradient(135deg,rgba(255,255,255,.38),rgba(255,255,255,.14));box-shadow:inset 0 1px 0 rgba(255,255,255,.7),0 4px 14px rgba(0,0,0,.25)}
+label{display:block;font-size:12px;opacity:.8;margin:12px 2px 5px}
+input,select{width:100%;padding:12px 13px;border-radius:14px;border:1px solid rgba(255,255,255,.28);
+ background:rgba(255,255,255,.10);color:#fff;font:400 15px Roboto;outline:none;
+ backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:inset 0 1px 2px rgba(0,0,0,.2)}
+input::placeholder{color:rgba(255,255,255,.5)}
+input:focus,select:focus{border-color:rgba(255,255,255,.7);background:rgba(255,255,255,.16)}
+select option{color:#000}
+.row{display:flex;gap:8px}.row>*{flex:1;min-width:0}
+.sw{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:14px}
 .sw input{width:auto}
-.btn{width:100%;margin-top:14px;padding:13px;border:0;border-radius:12px;background:var(--tg-theme-button-color,#2ea6ff);color:var(--tg-theme-button-text-color,#fff);font:700 15px Roboto}
-.btn.alt{background:var(--tg-theme-secondary-bg-color,#232e3c);color:inherit}
-#msg{font-size:13px;margin-top:8px;min-height:18px;opacity:.85}
-/* ---- сцена (макет чата Telegram) ---- */
-.stage{position:relative;margin:10px 0;border-radius:16px;overflow:hidden;aspect-ratio:9/16;background:#141e28}
-.stage.light{background:#dee8d6}
-.stage .pat{position:absolute;inset:0;opacity:.07;background-image:
+.btn{width:100%;margin-top:14px;padding:14px;border:1px solid rgba(255,255,255,.5);border-radius:18px;color:#fff;font:700 15px Roboto;
+ background:linear-gradient(135deg,rgba(80,160,255,.75),rgba(150,90,255,.65));
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.65),0 8px 26px rgba(80,120,255,.45);transition:.2s}
+.btn:active{transform:scale(.98)}
+.btn.alt{background:linear-gradient(135deg,rgba(255,255,255,.22),rgba(255,255,255,.08));box-shadow:inset 0 1px 0 rgba(255,255,255,.5)}
+#msg{font-size:13px;margin-top:10px;min-height:18px;opacity:.9;text-align:center}
+
+/* ---- сцена: карточка строго по центру ---- */
+.stage{position:relative;margin:6px 0;border-radius:26px;overflow:hidden;aspect-ratio:9/16;
+ background:linear-gradient(160deg,#16222f,#0f1822);border:1px solid var(--edge);
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 18px 50px rgba(0,0,0,.45)}
+.stage.light{background:linear-gradient(160deg,#e4eedc,#cfe0c6)}
+.stage .pat{position:absolute;inset:0;opacity:.08;background-image:
  radial-gradient(circle at 20% 20%,transparent 8px,#fff 9px,#fff 10px,transparent 11px),
  radial-gradient(circle at 70% 60%,transparent 6px,#fff 7px,#fff 8px,transparent 9px);
  background-size:60px 60px,80px 80px}
 .stage.light .pat{filter:invert(1)}
 .center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:0 5%}
-.pill{background:rgba(0,0,0,.45);color:#fff;border-radius:22px;padding:7px 16px;text-align:center;font-size:clamp(11px,3.4vw,16px);max-width:92%;line-height:1.3;animation:fade .6s both}
-.stage.light .pill{background:rgba(60,80,60,.55)}
-.card{width:66%;border-radius:22px;position:relative;overflow:hidden;color:#fff;text-align:center;animation:pop .7s cubic-bezier(.2,1.4,.4,1) both}
-.card.stars{background:rgba(8,16,24,.6);padding:6% 6% 8%}
+.pill{background:linear-gradient(135deg,rgba(255,255,255,.22),rgba(255,255,255,.07));backdrop-filter:blur(16px) saturate(170%);-webkit-backdrop-filter:blur(16px) saturate(170%);
+ border:1px solid rgba(255,255,255,.35);box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 6px 20px rgba(0,0,0,.25);
+ color:#fff;border-radius:22px;padding:8px 17px;text-align:center;font-size:clamp(11px,3.4vw,16px);max-width:92%;line-height:1.3;animation:fade .6s both}
+.stage.light .pill{color:#1d2b1d;border-color:rgba(0,0,0,.15);background:linear-gradient(135deg,rgba(255,255,255,.7),rgba(255,255,255,.35))}
+.card{width:66%;border-radius:26px;position:relative;overflow:hidden;color:#fff;text-align:center;animation:pop .7s cubic-bezier(.2,1.4,.4,1) both;
+ border:1px solid rgba(255,255,255,.35);box-shadow:inset 0 1px 0 rgba(255,255,255,.55),inset 0 -20px 40px rgba(255,255,255,.04),0 18px 44px rgba(0,0,0,.45)}
+.card::after{content:"";position:absolute;inset:0;pointer-events:none;border-radius:inherit;
+ background:linear-gradient(115deg,rgba(255,255,255,.28) 0%,rgba(255,255,255,0) 32%,rgba(255,255,255,0) 70%,rgba(255,255,255,.12) 100%)}
+.card.stars{background:linear-gradient(135deg,rgba(255,255,255,.16),rgba(255,255,255,.04)),rgba(10,20,30,.55);
+ backdrop-filter:blur(20px) saturate(170%);-webkit-backdrop-filter:blur(20px) saturate(170%);padding:6% 6% 8%}
 .card.nft{padding:0 0 7%}
-.gift-img{display:block;margin:0 auto;animation:float 3s ease-in-out infinite}
-.t1{font-weight:700;font-size:clamp(14px,4.6vw,24px);margin-top:3%}
-.t2{font-size:clamp(11px,3.3vw,16px);opacity:.78;margin-top:2%}
-.desc{font-size:clamp(11px,3.3vw,16px);opacity:.9;margin:3% 4% 6%}
-.vbtn{display:inline-block;position:relative;padding:2.6% 9%;border-radius:30px;font-weight:700;font-size:clamp(12px,3.8vw,18px)}
-.card.stars .vbtn{background:rgba(70,100,150,.8)}
+.gift-img{display:block;margin:0 auto;animation:float 3s ease-in-out infinite;filter:drop-shadow(0 10px 18px rgba(0,0,0,.35))}
+.t1{font-weight:700;font-size:clamp(14px,4.6vw,24px);margin-top:3%;text-shadow:0 2px 8px rgba(0,0,0,.25)}
+.t2{font-size:clamp(11px,3.3vw,16px);opacity:.8;margin-top:2%}
+.desc{font-size:clamp(11px,3.3vw,16px);opacity:.92;margin:3% 4% 6%}
+.vbtn{display:inline-block;position:relative;padding:2.6% 9%;border-radius:30px;font-weight:700;font-size:clamp(12px,3.8vw,18px);
+ border:1px solid rgba(255,255,255,.4);box-shadow:inset 0 1px 0 rgba(255,255,255,.55),0 4px 14px rgba(0,0,0,.25);
+ backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.card.stars .vbtn{background:linear-gradient(135deg,rgba(110,150,220,.75),rgba(70,100,170,.65))}
 .spark{position:absolute;width:10px;height:10px;background:#fff;clip-path:polygon(50% 0,60% 40%,100% 50%,60% 60%,50% 100%,40% 60%,0 50%,40% 40%);animation:tw 1.4s infinite}
 .fields{display:grid;grid-template-columns:1fr 1fr;gap:3px 10px;margin:4% 8% 5%;font-size:clamp(11px,3.4vw,16px);text-align:left}
-.fields span{opacity:.7;text-align:right}.fields b{font-weight:700}
-.ribbon{position:absolute;top:14px;right:-34px;transform:rotate(45deg);width:120px;text-align:center;font-size:11px;font-weight:700;padding:2px 0;background:rgba(0,0,0,.35)}
-.mock{position:absolute;right:10px;bottom:8px;font-size:11px;font-weight:700;opacity:.5;color:#fff}
+.fields span{opacity:.75;text-align:right}.fields b{font-weight:700}
+.ribbon{position:absolute;top:14px;right:-34px;transform:rotate(45deg);width:120px;text-align:center;font-size:11px;font-weight:700;padding:2px 0;background:rgba(0,0,0,.35);z-index:2}
+.mock{position:absolute;right:12px;bottom:10px;font-size:11px;font-weight:700;opacity:.55;color:#fff}
 canvas#conf{position:absolute;inset:0;pointer-events:none}
 @keyframes pop{0%{transform:scale(.3);opacity:0}100%{transform:scale(1);opacity:1}}
 @keyframes fade{from{opacity:0}to{opacity:1}}
 @keyframes float{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-6px) rotate(2deg)}}
 @keyframes tw{0%,100%{opacity:0;transform:scale(.4)}50%{opacity:1;transform:scale(1)}}
-/* режим записи */
+/* режим записи: на весь экран, карточка по центру */
+body.rec::before{display:none}
+body.rec{background:#16222f}
 body.rec .wrap>*:not(.stage){display:none}
 body.rec .wrap{padding:0;max-width:none}
-body.rec .stage{margin:0;border-radius:0;width:100vw;height:100vh;aspect-ratio:auto}
+body.rec .stage{margin:0;border-radius:0;border:0;width:100vw;height:100vh;aspect-ratio:auto;box-shadow:none}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>🎁 Gift Message Studio</h1>
-  <div class="tabs">
+  <h1>Gift Message Studio</h1>
+  <div class="tabs glass">
     <button id="tab-stars" class="on">⭐ Звёзды</button>
     <button id="tab-nft">🖼 NFT-подарок</button>
   </div>
@@ -76,7 +110,7 @@ body.rec .stage{margin:0;border-radius:0;width:100vw;height:100vh;aspect-ratio:a
     <button class="btn alt" id="recmode">🎬 Для записи</button>
   </div>
 
-  <div id="nftbox" style="display:none">
+  <div id="nftbox" class="panel glass" style="display:none">
     <label>Ссылка на NFT-подарок (t.me/nft/Название-123)</label>
     <input id="link" placeholder="t.me/nft/LoveCandle-123" inputmode="url">
     <div class="row">
@@ -91,7 +125,7 @@ body.rec .stage{margin:0;border-radius:0;width:100vw;height:100vh;aspect-ratio:a
     <input id="color" type="color" value="#c2593a" style="height:44px;padding:4px">
   </div>
 
-  <div id="starsbox">
+  <div id="starsbox" class="panel glass">
     <div class="row">
       <div><label>Звёзды</label><input id="stars" value="75" inputmode="numeric"></div>
       <div><label>TON</label><input id="ton" value="0,83"></div>
@@ -99,7 +133,8 @@ body.rec .stage{margin:0;border-radius:0;width:100vw;height:100vh;aspect-ratio:a
     </div>
   </div>
 
-  <label>Имя отправителя</label>
+  <div class="panel glass">
+  <label style="margin-top:0">Имя отправителя</label>
   <input id="sender" placeholder="Неизвестный пользователь">
   <div class="sw"><input type="checkbox" id="unknown" checked><label style="margin:0;opacity:1">«Неизвестный пользователь»</label></div>
   <label>Текст плашки (пусто = по умолчанию)</label>
@@ -114,6 +149,7 @@ body.rec .stage{margin:0;border-radius:0;width:100vw;height:100vh;aspect-ratio:a
     <div class="sw" style="align-items:flex-end"><input type="checkbox" id="mock" checked><label style="margin:0;opacity:1">Метка МАКЕТ</label></div>
   </div>
 
+  </div>
   <button class="btn" id="send">Показать в чате</button>
   <div id="msg"></div>
 </div>
