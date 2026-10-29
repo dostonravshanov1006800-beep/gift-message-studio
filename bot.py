@@ -78,6 +78,21 @@ async def send_video(m: Message, kind: str, **kw):
             pass
 
 
+async def send_nft_card(m: Message, nft: dict, sender: str, color=None, button_text="Посмотреть", banner=None):
+    """Как в Telegram: служебная строка + карточка подарка с кнопкой. Без подписей «макет», без видео-рамки."""
+    import render as _r
+    loop = asyncio.get_event_loop()
+    png = await loop.run_in_executor(None, lambda: _r.card_only(nft, sender=sender, color=color, button_text=button_text))
+    line = banner or f"{sender} передал(а) Вам подарок!"
+    await m.answer(f"<i>{html_escape(line)}</i>", parse_mode="HTML")
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=button_text, callback_data="mock_view")]])
+    await m.answer_photo(BufferedInputFile(png, "gift.png"), reply_markup=kb)
+
+
+def html_escape(s: str) -> str:
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 @dp.message(Command("gift"))
 async def gift(m: Message, command: CommandObject):
     args = (command.args or "").split(maxsplit=1)
@@ -99,7 +114,7 @@ async def nft_from_text(m: Message, text: str, sender: str):
         data = await gifts.fetch_nft(*p)
     except Exception as e:  # noqa
         return await m.answer(f"Не получилось получить данные подарка: {e}")
-    await send_video(m, "nft", sender=sender, nft=data)
+    await send_nft_card(m, data, sender)
 
 
 @dp.message(Command("nft"))
@@ -135,7 +150,7 @@ async def from_miniapp(m: Message):
             data = await gifts.fetch_nft(slug, num)
         except Exception as e:
             return await m.answer(f"⚠️ {e}")
-        return await send_video(m, "nft", sender=sender, nft=data, color=data.get("color"), **common)
+        return await send_nft_card(m, data, sender, color=data.get("color"), button_text=common["button_text"], banner=common["banner"])
     await m.answer("Для своего подарка пришли картинку с подписью (см. /help).")
 
 
@@ -159,7 +174,7 @@ async def own_gift(m: Message):
     nft = {"title": title[:40] or "Мой подарок", "number": num if num.isdigit() else "", "model": model[:30] or "—",
            "backdrop": back[:30] or "—", "symbol": sym[:30] or "—", "color": "#c2593a", "color_edge": "#9a3f26",
            "pattern_color": "#000000", "pattern_text": "", "image_b64": b64}
-    await send_video(m, "nft", sender=sender[:40] or "Неизвестный пользователь", nft=nft, color=nft["color"])
+    await send_nft_card(m, nft, sender[:40] or "Неизвестный пользователь", color=nft["color"])
 
 
 @dp.callback_query(F.data == "preset_stars")

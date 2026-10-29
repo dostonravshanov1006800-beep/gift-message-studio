@@ -210,6 +210,36 @@ def star_gift_card(img, y, stars: int, sparkle=True):
     return y + ch
 
 
+_gift_cache = {}
+
+
+def gift_sprite(lottie_url: str, size: int = 840, frame: int = 0):
+    """Сам подарок без фона и узора: берём из lottie-стикера только слой «Gift» (как рисует Telegram)."""
+    if not lottie_url:
+        return None
+    key = (lottie_url, size, frame)
+    if key in _gift_cache:
+        return _gift_cache[key]
+    try:
+        import json as _j
+        import httpx as _h
+        from rlottie_python import LottieAnimation
+        data = _h.get(lottie_url, timeout=20, follow_redirects=True).json()
+        keep = [l for l in data.get("layers", []) if l.get("nm") == "Gift"]
+        if not keep:
+            return None
+        data["layers"] = keep
+        anim = LottieAnimation.from_data(_j.dumps(data))
+        im = anim.render_pillow_frame(frame_num=frame, width=size, height=size).convert("RGBA")
+        bb = im.getchannel("A").point(lambda v: 255 if v > 8 else 0).getbbox()
+        if not bb:
+            return None
+        _gift_cache[key] = im
+        return im
+    except Exception:
+        return None
+
+
 def _own_image(nft):
     """Картинка, загруженная пользователем (base64 data-URL или сырые байты) — без сети."""
     import base64
@@ -237,12 +267,16 @@ def _emoji_pattern(card, cw, ch, emoji, color=(0, 0, 0), strength=0.22):
     card.alpha_composite(layer)
 
 
-def nft_card(img, y, nft: dict, sender: str, color_hex: str, button_text="Посмотреть"):
-    cw, ch = int(W * 0.66), 1040
+def nft_card(img, y, nft: dict, sender: str, color_hex: str, button_text="Посмотреть", return_card=False):
+    cw, ch = int(W * 0.66), int(W * 0.66 * 1.198)
     x0 = (W - cw) // 2
     c_center = hex_rgb(color_hex)
     c_edge = hex_rgb(nft.get("color_edge") or "#000000") if nft.get("color_edge") else darker(c_center, 0.8)
     base = c_center
+    # Telegram показывает градиент мягче, чем на странице: сжимаем разницу центр/край (по замерам скриншота)
+    mid = tuple((c_center[k] + c_edge[k]) // 2 for k in range(3))
+    c_center = tuple(int(mid[k] + (c_center[k] - mid[k]) * 0.55) for k in range(3))
+    c_edge = tuple(int(mid[k] + (c_edge[k] - mid[k]) * 0.55) for k in range(3))
     # радиальный градиент центр -> край (как в SVG страницы)
     card = Image.new("RGBA", (cw, ch), c_edge + (255,))
     steps = 60
@@ -269,44 +303,63 @@ def nft_card(img, y, nft: dict, sender: str, color_hex: str, button_text="Пос
         _emoji_pattern(card, cw, ch, nft["pattern_text"][:2], hex_rgb(nft.get("pattern_color") or "#000000"))
     d = ImageDraw.Draw(card, "RGBA")
     # фото подарка (Fragment): large.jpg, затем webp; если нет, рисуем крупную первую букву вместо пустого круга
-    pic = _own_image(nft) or fetch_image(nft.get("image", "")) or fetch_image(nft.get("webp", ""))
+    pic = _own_image(nft) or gift_sprite(nft.get("lottie", "")) or fetch_image(nft.get("image", "")) or fetch_image(nft.get("webp", ""))
     if pic:
-        pic = pic.resize((420, 420), Image.LANCZOS)
-        card.paste(pic, ((cw - 420) // 2, 120), pic if pic.mode == "RGBA" else None)
+        # как в Telegram: подарок обрезан по контуру и крупно стоит в верхней части карточки (≈ 44% высоты)
+        bb = pic.getchannel("A").point(lambda v: 255 if v > 8 else 0).getbbox() if pic.mode == "RGBA" else None
+        if bb:
+            pic = pic.crop(bb)
+        box_w, box_h = int(cw * 0.62), int(ch * 0.46)
+        k = min(box_w / pic.width, box_h / pic.height)
+        pic = pic.resize((max(1, int(pic.width * k)), max(1, int(pic.height * k))), Image.LANCZOS)
+        card.paste(pic, ((cw - pic.width) // 2, int(ch * 0.075) + (box_h - pic.height) // 2), pic if pic.mode == "RGBA" else None)
     else:
-        d.text((cw / 2, 330), (nft.get("title") or "?")[0], font=font(220, True), fill=(255, 255, 255, 200), anchor="mm")
-    d.text((cw / 2, 610), f"Подарок от {sender}", font=font(46, True), fill="white", anchor="mm")
+        d.text((cw / 2, ch * 0.30), (nft.get("title") or "?")[0], font=font(int(cw * 0.3), True), fill=(255, 255, 255, 200), anchor="mm")
+    d.text((cw / 2, ch * 0.650), f"Подарок от {sender}", font=font(int(cw * 0.0705 * 1.0), True), fill="white", anchor="mm")
     num = nft.get("number")
     sub = f"{nft['title']} #{int(num):,}" if str(num or "").strip().isdigit() and int(num) > 0 else str(nft["title"])
-    d.text((cw / 2, 668), sub, font=font(36), fill=(255, 255, 255, 180), anchor="mm")
+    d.text((cw / 2, ch * 0.716), sub, font=font(int(cw * 0.0565)), fill=(255, 255, 255, 180), anchor="mm")
     rows = [("Модель", nft["model"]), ("Фон", nft["backdrop"]), ("Узор", nft["symbol"])]
-    ry = 750
-    lf, vf = font(34), font(34, True)
+    ry = int(ch * 0.790)
+    lf, vf = font(int(cw * 0.0565)), font(int(cw * 0.0565), True)
     for lab, val in rows:
         d.text((cw / 2 - 20, ry), lab, font=lf, fill=(255, 255, 255, 170), anchor="rm")
         d.text((cw / 2 + 20, ry), val, font=vf, fill="white", anchor="lm")
-        ry += 56
-    bw, bh = 340, 92
-    bx, by = (cw - bw) // 2, ch - bh - 36
+        ry += int(ch * 0.0765)
+    bw, bh = int(cw * 0.46), int(ch * 0.072)
+    bx, by = (cw - bw) // 2, int(ch * 0.884)
     d.rounded_rectangle([bx, by, bx + bw, by + bh], bh // 2, fill=darker(base, 0.65) + (230,))
-    d.text((cw / 2, by + bh / 2), button_text, font=font(40, True), fill="white", anchor="mm")
-    ribbon = Image.new("RGBA", (260, 60), (0, 0, 0, 0))
+    d.text((cw / 2, by + bh / 2), button_text, font=font(int(cw * 0.0565), True), fill="white", anchor="mm")
+    ribbon = Image.new("RGBA", (int(cw*0.36), int(cw*0.085)), (0, 0, 0, 0))
     rd = ImageDraw.Draw(ribbon)
-    rd.rectangle([0, 0, 260, 60], fill=darker(base, 0.7) + (230,))
-    rd.text((130, 30), "подарок", font=font(30, True), fill="white", anchor="mm")
+    rd.rectangle([0, 0, ribbon.width, ribbon.height], fill=darker(base, 0.7) + (230,))
+    rd.text((ribbon.width/2, ribbon.height/2), "подарок", font=font(int(cw*0.042), True), fill="white", anchor="mm")
     ribbon = ribbon.rotate(-45, expand=True, resample=Image.BICUBIC)
-    card.paste(ribbon, (cw - ribbon.width + 40, -30), ribbon)
+    card.paste(ribbon, (cw - ribbon.width + int(cw*0.055), -int(cw*0.04)), ribbon)
     hl = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
     hd = ImageDraw.Draw(hl)
     for i in range(int(ch * 0.5)):
-        hd.line([(0, i), (cw, i)], fill=(255, 255, 255, int(55 * (1 - i / (ch * 0.5)))))
+        hd.line([(0, i), (cw, i)], fill=(255, 255, 255, int(22 * (1 - i / (ch * 0.5)))))
     card = Image.alpha_composite(card, hl)
-    ImageDraw.Draw(card).rounded_rectangle([1, 1, cw - 2, ch - 2], 48, outline=(255, 255, 255, 120), width=3)
+    ImageDraw.Draw(card).rounded_rectangle([1, 1, cw - 2, ch - 2], int(cw*0.07), outline=(255, 255, 255, 38), width=2)
     mask = Image.new("L", (cw, ch), 0)
-    ImageDraw.Draw(mask).rounded_rectangle([0, 0, cw, ch], 48, fill=255)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, cw, ch], int(cw*0.07), fill=255)
     card.putalpha(mask)
+    if return_card:
+        return card
     img.paste(card, (x0, y), card)
     return y + ch
+
+
+def card_only(nft: dict, sender="Неизвестный пользователь", color=None, button_text="Посмотреть", width=720) -> bytes:
+    """Только карточка NFT-подарка (PNG с прозрачными углами): как в чате Telegram, без рамок и подписей."""
+    c = color or nft.get("color") or "#c2593a"
+    card = nft_card(None, 0, nft, sender, c, button_text, return_card=True)
+    k = width / card.width
+    card = card.resize((width, int(card.height * k)), Image.LANCZOS)
+    buf = io.BytesIO()
+    card.save(buf, "PNG", optimize=True)
+    return buf.getvalue()
 
 
 def _compose(kind, y0, img, sender, stars, ton, usd, nft, color, banner, date_label, button_text, light):
