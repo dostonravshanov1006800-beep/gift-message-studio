@@ -9,7 +9,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart, CommandObject
 from aiogram.types import (
     BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup,
-    Message, WebAppInfo,
+    Message, WebAppInfo, BotCommand, MenuButtonWebApp, MenuButtonCommands,
 )
 
 import gifts
@@ -148,6 +148,57 @@ async def mock_view(c: CallbackQuery):
     await c.answer("Это макет, настоящего подарка нет", show_alert=True)
 
 
+def app_kb():
+    if WEBAPP_URL.startswith("https://"):
+        return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎛 Открыть Mini App", web_app=WebAppInfo(url=WEBAPP_URL))]])
+    return None
+
+
+@dp.message(Command("app"))
+async def cmd_app(m: Message):
+    kb = app_kb()
+    if kb:
+        await m.answer("Открой пульт управления:", reply_markup=kb)
+    else:
+        await m.answer("Mini App пока не подключён (не задан WEBAPP_URL с https).")
+
+
+@dp.message(Command("help"))
+async def cmd_help(m: Message):
+    await m.answer(
+        "<b>Команды</b>\n"
+        "/start — начало\n"
+        "/app — открыть Mini App\n"
+        "/gift 75 Имя — звёздный подарок\n"
+        "/nft t.me/nft/LoveCandle-123 Имя — NFT-подарок\n"
+        "/help — эта справка\n\n"
+        "Свой подарок: пришли картинку с подписью\n"
+        "<code>Название | номер | модель | фон | узор | отправитель</code>",
+        parse_mode="HTML", reply_markup=app_kb())
+
+
+async def setup_menu():
+    """Команды в меню «/» и синяя кнопка Mini App слева от поля ввода — для всех пользователей."""
+    cmds = [
+        BotCommand(command="start", description="Начать"),
+        BotCommand(command="app", description="Открыть Mini App"),
+        BotCommand(command="gift", description="Звёздный подарок: /gift 75 Имя"),
+        BotCommand(command="nft", description="NFT-подарок: /nft ссылка Имя"),
+        BotCommand(command="help", description="Справка"),
+    ]
+    await bot.set_my_commands(cmds)
+    await bot.set_my_commands(cmds, language_code="ru")
+    if WEBAPP_URL.startswith("https://"):
+        await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="Mini App", web_app=WebAppInfo(url=WEBAPP_URL)))
+    else:
+        await bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+
+
 async def run_bot():
     await bot.delete_webhook(drop_pending_updates=False)
+    try:
+        await setup_menu()
+    except Exception:
+        import logging
+        logging.getLogger("gms").exception("Не удалось настроить меню (повторится при перезапуске)")
     await dp.start_polling(bot)
