@@ -252,27 +252,32 @@ $('replay').onclick=draw;
 $('recmode').onclick=()=>{document.body.classList.add('rec');draw();let last=0;
   document.body.onclick=()=>{const n=Date.now();if(n-last<350){document.body.classList.remove('rec');document.body.onclick=null}else draw();last=n}};
 
-$('link').addEventListener('change',async()=>{
-  $('msg').textContent='Ищу подарок…';
-  try{const r=await fetch('/api/nft?link='+encodeURIComponent($('link').value));const j=await r.json();
-    if(!r.ok)throw new Error(j.detail||'Ошибка');
-    nft=j;$('model').value=j.model;$('backdrop').value=j.backdrop;$('symbol').value=j.symbol;$('num').value=j.number;
-    if(j.color)$('color').value=j.color;$('msg').textContent='Готово ✓';draw()}
-  catch(e){$('msg').textContent=e.message}});
+$('link').addEventListener('change',()=>{
+  const m=($('link').value||'').match(/t\.me\/nft\/([A-Za-z0-9_]+)-(\d+)/i);
+  if(!m){$('msg').textContent='Ссылка вида t.me/nft/Название-123';return}
+  nft={slug:m[1],number:+m[2],title:m[1].replace(/([a-z])([A-Z])/g,'$1 $2'),image:`https://nft.fragment.com/gift/${m[1].toLowerCase()}-${m[2]}.large.jpg`};
+  $('num').value=m[2];$('msg').textContent='Ссылка принята. Модель, фон и узор бот подтянет сам ✓';draw()});
 
-$('send').onclick=async()=>{
-  $('msg').textContent='Отправляю…';
+$('send').onclick=()=>{
   const params={kind,sender:name(),stars:$('stars').value,ton:$('ton').value,usd:$('usd').value,
-    banner:$('banner').value,date:$('date').value,button:$('button').value,bg:$('bg').value,mock:$('mock').checked,
-    color:$('color').value,nft:nft?{...nft,number:+$('num').value||nft.number,model:$('model').value,backdrop:$('backdrop').value,symbol:$('symbol').value}:null};
-  if(kind==='custom'){params.custom={image:customImg,title:$('ctitle').value,number:$('cnum').value,model:$('cmodel').value,
-    backdrop:$('cback').value,symbol:$('csym').value,color:$('ccol1').value,colorEdge:$('ccol2').value,patternText:$('cpat').value,patternColor:'#000000'};
-    if(!customImg){$('msg').textContent='Сначала загрузи картинку подарка';return}}
-  if(kind==='nft'&&!nft){$('msg').textContent='Сначала вставь ссылку на NFT-подарок';return}
-  try{const r=await fetch('/api/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({initData:tg?tg.initData:'',params})});
-    const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||'Ошибка');
-    $('msg').textContent='Отправлено в чат с ботом ✓'}
-  catch(e){$('msg').textContent=e.message}};
+    banner:$('banner').value,date:$('date').value,button:$('button').value,bg:$('bg').value,mock:$('mock').checked};
+  if(kind==='nft'){
+    if(!nft){$('msg').textContent='Сначала вставь ссылку на NFT-подарок';return}
+    params.link=$('link').value;params.number=+$('num').value||nft.number;
+  }
+  if(kind==='custom'){
+    if(!customImg){$('msg').textContent='Сначала загрузи картинку подарка';return}
+    params.custom={title:$('ctitle').value,number:$('cnum').value,model:$('cmodel').value,backdrop:$('cback').value,
+      symbol:$('csym').value,color:$('ccol1').value,colorEdge:$('ccol2').value,patternText:$('cpat').value};
+    params.hasImage=true;
+    // картинка не помещается в sendData (лимит 4096 байт): отправляем её отдельно через бота
+    $('msg').textContent='Для своей картинки: пришли её боту с подписью, как в /help (лимит Telegram на данные Mini App).';
+    return;
+  }
+  const data=JSON.stringify(params);
+  if(data.length>3800){$('msg').textContent='Слишком длинные тексты';return}
+  if(tg&&tg.sendData){$('msg').textContent='Отправляю…';tg.sendData(data)}
+  else $('msg').textContent='Открой Mini App из бота (кнопка внизу), там отправка работает'};
 
 $('cfile').addEventListener('change',e=>{
   const f=e.target.files[0]; if(!f)return;

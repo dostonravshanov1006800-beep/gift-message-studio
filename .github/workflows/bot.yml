@@ -1,0 +1,35 @@
+name: bot
+
+# Бот 24/7 на GitHub Actions: каждые 5 минут запускается воркер, который слушает Telegram ~5.5 минут.
+# concurrency: новый запуск ждёт предыдущий (без дублей ответов), цепочка идёт без разрыва.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: gift-bot
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-roboto fonts-noto-color-emoji
+      - run: pip install -r requirements.txt
+      - name: Run bot worker
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          WEBAPP_URL: https://dostonravshanov1006800-beep.github.io/gift-message-studio/
+          WORKER_SECONDS: "330"
+        run: python worker.py

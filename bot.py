@@ -9,7 +9,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart, CommandObject
 from aiogram.types import (
     BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup,
-    Message, WebAppInfo, BotCommand, MenuButtonWebApp, MenuButtonCommands,
+    Message, WebAppInfo, BotCommand, MenuButtonWebApp, MenuButtonCommands, ReplyKeyboardMarkup, KeyboardButton,
 )
 
 import gifts
@@ -31,6 +31,7 @@ async def start(m: Message):
     if WEBAPP_URL.startswith("https://"):
         rows.append([InlineKeyboardButton(text="🎛 Открыть пульт", web_app=WebAppInfo(url=WEBAPP_URL))])
     rows.append([InlineKeyboardButton(text="⭐ Пример: 75 звёзд", callback_data="preset_stars")])
+    await m.answer("👇 Кнопка Mini App внизу", reply_markup=app_reply_kb()) if app_reply_kb() else None
     await m.answer(
         "Привет! Я делаю макеты сообщений о подарках Telegram для видео.\n\n"
         "• Открой пульт и настрой всё сам\n"
@@ -114,6 +115,30 @@ async def link(m: Message):
     await nft_from_text(m, m.text, "CaseMint")
 
 
+@dp.message(F.web_app_data)
+async def from_miniapp(m: Message):
+    try:
+        p = json.loads(m.web_app_data.data)
+    except Exception:
+        return await m.answer("Не смог прочитать данные Mini App.")
+    kind = p.get("kind", "stars")
+    common = dict(banner=(p.get("banner") or None), date_label=(p.get("date") or None),
+                  mock_mark=bool(p.get("mock", True)), bg=p.get("bg", "dark"),
+                  button_text=(p.get("button") or "Посмотреть")[:24])
+    sender = (p.get("sender") or "Неизвестный пользователь")[:40]
+    if kind == "stars":
+        return await send_video(m, "stars", sender=sender, stars=int(p.get("stars") or 75),
+                                ton=str(p.get("ton") or "0,83"), usd=str(p.get("usd") or "1,12"), **common)
+    if kind == "nft":
+        try:
+            slug, num = gifts.parse_link(p.get("link", ""))
+            data = await gifts.fetch_nft(slug, num)
+        except Exception as e:
+            return await m.answer(f"⚠️ {e}")
+        return await send_video(m, "nft", sender=sender, nft=data, color=data.get("color"), **common)
+    await m.answer("Для своего подарка пришли картинку с подписью (см. /help).")
+
+
 # --- «Свой подарок» прямо в чате: фото + подпись "Название | номер | модель | фон | узор" ---
 @dp.message(F.photo | F.document)
 async def own_gift(m: Message):
@@ -145,7 +170,18 @@ async def preset(c: CallbackQuery):
 
 @dp.callback_query(F.data == "mock_view")
 async def mock_view(c: CallbackQuery):
-    await c.answer("Это макет, настоящего подарка нет", show_alert=True)
+    try:
+        await c.answer("Это макет, настоящего подарка нет", show_alert=True)
+    except Exception:
+        pass  # старая кнопка: Telegram уже закрыл запрос
+
+
+def app_reply_kb():
+    if not WEBAPP_URL.startswith("https://"):
+        return None
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="🎛 Открыть Mini App", web_app=WebAppInfo(url=WEBAPP_URL))]],
+        resize_keyboard=True, is_persistent=True)
 
 
 def app_kb():
@@ -156,9 +192,9 @@ def app_kb():
 
 @dp.message(Command("app"))
 async def cmd_app(m: Message):
-    kb = app_kb()
+    kb = app_reply_kb()
     if kb:
-        await m.answer("Открой пульт управления:", reply_markup=kb)
+        await m.answer("Открой пульт управления кнопкой внизу 👇", reply_markup=kb)
     else:
         await m.answer("Mini App пока не подключён (не задан WEBAPP_URL с https).")
 
